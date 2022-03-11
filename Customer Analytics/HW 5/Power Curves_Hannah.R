@@ -53,14 +53,24 @@ for (i in mdl_list) {
   power_list <- c(power_list, min_n_base$power)
 }
 
-plot(n_list, mdl_list)
+df <- cbind(data.frame(mdl_list), data.frame(n_list))
 
-#Total Test Sample:
+ggplot(data = df, aes(x = n_list, y = mdl_list, color = "blue")) + geom_point(show.legend = FALSE) +
+  xlab("Minimum Sample Required") + ylab("Minimum Detectable Lift")
+
+#plot(n_list, mdl_list)
+
+## Total Test Sample: ##
 min_n <- ceiling(n_list+1) #typically round up and add one to deal with rounding errors
 total_n <- min_n * 2
 
 #Total Duration of Test
 duration = ceiling(total_n/daily_sample_amount)
+
+df <- cbind(data.frame(mdl_list), data.frame(duration))
+
+ggplot(data = df, aes(x = duration, y = mdl_list, color = "blue")) + geom_point(show.legend = FALSE) +
+  xlab("Test Duration (Days)") + ylab("Minimum Detectable Lift")
 
 plot(duration, mdl_list) #16 day difference in duration between mdl = 0.03 and mdl = 0.05
 
