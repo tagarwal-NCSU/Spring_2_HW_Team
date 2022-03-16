@@ -78,108 +78,110 @@ ggplot(data=parameters, aes(x=DURATION_DAYS, y=POWER, color=ALPHA)) +
   scale_x_continuous(labels = comma) +
   scale_y_continuous(labels = percent) +
   labs(title="Power curve for varying levels of Alpha")
+
 ```
 
 ```{r}
-
-##----------------------------------------------------------------
-# IAA Factorial Designs 
-# Aaron Baker (ambaker31991@gmail.com)
-##----------------------------------------------------------------
-
-#Clear memory
-rm(list = ls())
-
-#Libraries
-library(lmSupport)
-library(dplyr)
-
-
-#Similar to previous power analyses, we need to specify our design parameters including MDL
-  #However, when analzying models this isn't as straightforward as a t-test difference in means
-  #Instead, the MDL in these scenarios is the difference in F statistics for a full and reduced model
-  #Because this is not easy to specify explicilty, instead we run a simulation determine the effect size given
-  #Our expected levels (or detectable) levels of the effects 
-
-#------------------------------------------------------
-# Step 1: Create data set under our response parameters
-#------------------------------------------------------
-
-#Total observations per treatment
-n <- 100000
-
-#Response Levels for each tratment 
-response_n1_n1 <- 0.0135
-response_n1_p1 <- 0.0125
-response_p1_n1 <- 0.0110
-response_p1_p1 <- 0.010
-
-  #These could also be stated in terms of MDLs from the control (-1, -1) treatment
-  #MDL <- 0.05
-  #response_n1_n1 <- 0.015
-  #response_n1_p1 <- response_n1_n1*(1+MDL)
-
-#Our design variables replicated per number of observations
-design <- expand.grid(rep=rep(1:10000), FC1=c("-1","+1"), FC2=c("-1","+1")) 
-
-  #If you want to see the simplified matrix
-  #View(expand.grid(FC1=c("-1","+1"), FC2=c("-1","+1"))) 
-
-#Create a simulated data set given our parameters 
-t1 <- ceiling((response_n1_n1*n))
-t2 <- ceiling((response_n1_p1*n))
-t3 <- ceiling((response_p1_n1*n))
-t4 <- ceiling((response_p1_p1*n))
-
-data_n1_n1 <- c(rep(1,t1), rep(0, n-t1))
-data_p1_n1 <- c(rep(1,t2), rep(0, n-t2))
-data_n1_p1 <- c(rep(1,t3), rep(0, n-t3))
-data_p1_p1 <- c(rep(1,t4), rep(0, n-t4))
-
-#Combined all together into one data frame for modeling
-data <- data.frame(FC1=design$FC1,
-                   FC2=design$FC2,
-                   response=c(data_n1_n1,
-                              data_p1_n1,
-                              data_n1_p1,
-                              data_p1_p1))
-
-#Validate to ensure properly set up
-data %>%
-  group_by(FC1,FC2) %>%
-  summarize(tot=n(), response=sum(response), response_rate = sum(response)/n())
-
-#-------------------------------------------------------------
-# Step 2: Conduct power analysis to find minimum sample size
-#-------------------------------------------------------------
-
-#The first step is to estimate a model using our simulated data
-model = glm(response ~ FC1*FC2, data=data, family=c("binomial"))
-
-#The second step is to find the effect size in our given data using the modelEffectSizes function
-  #The effect size is the pEta-square (partial Eta Squared):
-    #The partial eqa squared is the ratio of variance associated with an effect, plus that effect and 
-    #it's associated error variance
-    #The formula is: Partial eta^2 = SSeffect / SSeffect + error
-  #Note, you will find multiples. For factorial designs, we always pick the lowest effect size
-modelEffectSizes(model)
-
-  #In this example, the smallest pEta-sq is associated with FC1 at 0.0001. 
-  #This seems to round, so you may want to do it exact: peta = 0.3898/(0.3898+5105.5)
-
-#The third step is to find the sample size, we use the modelPower function
-  #This compares two models, one with and without the factor of interest (the one with lowest effect size)
-  #pc = number in compact model (this is always number of treatments - 1)
-  #pa = number in full model (equal to the number of treatments) 
-  #peta2 = the effect size from the previous step
-  #alpha, power, and N per usual. We leave N as NULL to solve for the minimum sample size
-modelPower(pc=3, pa=4, peta2=0.0001, N=NULL, alpha=0.05, power=0.80)
-
-#In the results, we see the sample size is 78485 (rounded up) to detect this single treatment
-highest_sample_required <- 78485
-
-#To achieve 
-sample_per_treatment <- highest_sample_required / 4
-
+mdls = c(0.01, 0.03, 0.05, 0.07, 0.10)
+par(mfrow=c(5, 1))
+for (i in 1:length(mdls)){
+  MDL = mdls[i]
+  #Calculate the minimum sample size (proprotion) using pwr package
+  min_n_pwr <- pwr.2p.test(n=NULL, #leaving this Null will return the minimum sample required
+                          h=ES.h(p1=p0,p2=(p0*(1+MDL))), #Effect size (Cohen's h) - https://en.wikipedia.org/wiki/Cohen%27s_h
+                          sig.level=alpha, 
+                          power=power, 
+                          alternative="two.sided")
+  print(
+  plot(min_n_pwr) + 
+    geom_hline(yintercept=0.80, color='blue') + 
+    scale_x_continuous(labels = comma)
+  )
+}
 ```
 
+```{r}
+#Create your own power curve
+parameters <- expand.grid(MDL=seq(0.01, 0.10, 0.001))
+parameters <- arrange(parameters, MDL)
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(SAMPLE_SIZE=pwr.2p.test(n=NULL,
+                                 h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=alpha,
+                                 power=power,
+                                 alternative='two.sided')$n) %>%
+  mutate(DURATION_DAYS=SAMPLE_SIZE/daily_sample_amount)# %>%
+  #mutate(MDL=as.factor(MDL))
+
+#By Sample Size
+ggplot(data=parameters, aes(x=MDL, y=SAMPLE_SIZE)) +
+  geom_line() +
+  #geom_hline(yintercept=0.80) + 
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+
+#By Duration
+ggplot(data=parameters, aes(x=MDL, y=DURATION_DAYS)) +
+  geom_line() +
+  #geom_hline(yintercept=0.80) + 
+  scale_y_continuous(labels = comma) +
+  scale_x_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+```
+
+
+```{r}
+#Create your own power curve
+parameters <- expand.grid(ALPHA=c(0.01,0.05,0.10),
+                          MDL=c(0.03, 0.05, 0.10))
+parameters <- arrange(parameters, ALPHA)
+n = 14 * daily_sample_amount
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(POWER=pwr.2p.test(n=n,
+                           h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=ALPHA,
+                                 power=NULL,
+                                 alternative='two.sided')$power) %>%
+  mutate(DURATION_DAYS=n/daily_sample_amount,
+         SAMPLE_SIZE=n) %>%
+  mutate(ALPHA=as.factor(ALPHA))
+
+#By Sample Size
+ggplot(data=parameters, aes(x=MDL, y=POWER, color=ALPHA)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of Alpha and MDL")
+```
+
+```{r}
+#Create your own power curve
+parameters <- expand.grid(ALPHA=c(0.01,0.05,0.10),
+                          MDL=seq(0.03, 0.10, 0.001))
+parameters <- arrange(parameters, ALPHA)
+n = 14 * daily_sample_amount
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(POWER=pwr.2p.test(n=n,
+                           h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=ALPHA,
+                                 power=NULL,
+                                 alternative='two.sided')$power) %>%
+  mutate(DURATION_DAYS=n/daily_sample_amount,
+         SAMPLE_SIZE=n) %>%
+  mutate(ALPHA=as.factor(ALPHA))
+
+ggplot(data=parameters, aes(x=MDL, y=POWER, color=ALPHA)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of Alpha and MDL")
+```

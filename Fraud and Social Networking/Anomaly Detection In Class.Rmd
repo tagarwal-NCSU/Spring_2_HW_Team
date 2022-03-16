@@ -125,21 +125,118 @@ plot(CovLimit ~ Time, data = df, cex = sqrt(knn_score)+0.01, pch = 20,
 
 # Local Outlier Factor #
 ```{r}
-df <- data.frame(Time = ins$Time_Between_CL_R, 
-                 CovLimit = ins$Cov_Limit_Claim/1000)
+library(dplyr)
+
+## Coverage and distance ##
+df <- ins %>% 
+      filter(!is.na(Distance_Claim_Adj)) %>% 
+      select(Cov_Limit_Claim, Distance_Claim_Adj, Coverage_Income_Ratio_Claim)
 
 ins_lof <- lof(scale(df), k = 5)
 
 df$lof_score <- ins_lof
 
-plot(CovLimit ~ Time, data = df, cex = lof_score, pch = 20,
-     xlim = c(-10, 30), 
-     ylim = c(-10, 3000),
-     main = "Coverage Limit vs. Speed of Payment 
-             \nSize Adjusted for LOF Score",
-     xlab = "Time Between Claim and Payment",
-     ylab = "Coverage Limit at Claim (Thousands $)")
+plot(Distance_Claim_Adj ~ Coverage_Income_Ratio_Claim, data = df, cex = lof_score, pch = 20)
+
+
+customer_ids = ins %>% 
+      filter(!is.na(Distance_Claim_Adj)) %>% 
+      select(Cust_ID)
+
+df$Cust_ID = customer_ids$Cust_ID
+
+Fraud_Cust_IDs_1 = df %>% 
+                  filter(lof_score > 2 & lof_score < 100000) %>% 
+                  select(Cust_ID)
+
+## Medical History ##
+
+df <- ins %>% 
+      select(Changes_Med_History, Age_CL, Nonhealth_Death_Healthy)
+
+ins_lof <- lof(scale(df), k = 5)
+
+df$lof_score <- ins_lof
+
+plot(Changes_Med_History ~ Age_CL, data = df, cex = lof_score, pch = 20)
+
+
+customer_ids = ins %>%
+      select(Cust_ID)
+
+df$Cust_ID = customer_ids$Cust_ID
+
+Fraud_Cust_IDs_2 = df %>% 
+                  filter(lof_score > 2 & lof_score < 100000) %>% 
+                  select(Cust_ID)
+
+## Coverage and Policies ##
+
+df <- ins %>% 
+      filter(!is.na(Cov_Limit_Slope)) %>% 
+      select(Pol_Count, Coverage_Income_Ratio_Initial, Cov_Limit_Slope)
+
+ins_lof <- lof(scale(df), k = 5)
+
+df$lof_score <- ins_lof
+
+plot(Pol_Count ~ Coverage_Income_Ratio_Initial, data = df, 
+     cex = lof_score, pch = 20)
+
+customer_ids = ins %>%
+      filter(!is.na(Cov_Limit_Slope)) %>% 
+      select(Cust_ID)
+
+df$Cust_ID = customer_ids$Cust_ID
+
+Fraud_Cust_IDs_3 = df %>% 
+                  filter(lof_score > 2 & lof_score < 100000) %>% 
+                  select(Cust_ID)
+
+## Most changes within 6 months ##
+df <- ins %>% 
+      filter(Number_Changes > 0) %>% 
+      mutate(frac_CH_in_6Mon = CH_Count_6Mon / Number_Changes) %>% 
+      filter(frac_CH_in_6Mon > 1)
+
+Fraud_Cust_IDs_4 = df
+
+## TODO: Decreasing Age
+df <- ins %>% 
+        filter(Decreasing_Age == 1)
+
+df # 0 rows
+
+## TODO: IN_After_CL
+df <- ins %>% 
+        filter(IN_After_CL == 1)
+
+Fraud_Cust_IDs_5 = df
+
+## TODO: Med_Deletion_Flag
+df <- ins %>% 
+        filter(Med_Deletion_Flag != 1)
+
+df # 0 rows
+
+## TODO: Negative Age_CL
+df <- ins %>% 
+        filter(Age_CL < 0)
+
+Fraud_Cust_IDs_6 = df
+
+
+## Join and Save ##
+
+Fraud_Cust_IDs = unique(c(Fraud_Cust_IDs_1$Cust_ID, Fraud_Cust_IDs_2$Cust_ID, 
+                          Fraud_Cust_IDs_3$Cust_ID, Fraud_Cust_IDs_4$Cust_ID,
+                          Fraud_Cust_IDs_5$Cust_ID, Fraud_Cust_IDs_6$Cust_ID))
+
+write.csv(Fraud_Cust_IDs, "fraud_ids.csv")
+
+length(Fraud_Cust_IDs)
 ```
+
 
 
 # Isolation Forests #
