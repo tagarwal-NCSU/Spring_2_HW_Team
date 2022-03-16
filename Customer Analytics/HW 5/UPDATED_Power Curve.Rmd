@@ -1,0 +1,247 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## IMPORT PACKAGES 
+```{r}
+rm(list = ls())
+
+require(pwr) #https://cran.r-project.org/web/packages/pwr/vignettes/pwr-vignette.html
+require(dplyr)
+require(ggplot2)
+require(scales)
+```
+
+## Calculate Min Sample Size
+```{r}
+rm(list = ls())
+
+# Estimates of the control parameters:
+p0 <- 0.501 # This typically comes from the historical data
+daily_sample_amount <- 1400 # This typically the average historical daily amount in the time period expecting to test
+
+#Set of minimum sample size parameters
+alpha <- 0.05 #the probability of a false positive
+beta <- 0.20 #the probability of a false negative
+power <- 1 - beta #the probability of a true positive
+mdl <- 0.02 # the minimum detectable lift to design test for. defined as the % difference
+smp_ratio <- 1 #equal sample size in each variant 
+direction <- 'two.sided' #type of test
+
+#Calculate the minimum sample size (proprotion) using pwr package
+min_n_pwr <- pwr.2p.test(n=NULL, #leaving this Null will return the minimum sample required
+                         h=ES.h(p1=p0,p2=(p0*(1+mdl))), #Effect size (Cohen's h) - https://en.wikipedia.org/wiki/Cohen%27s_h
+                         sig.level=alpha, 
+                         power=power, 
+                         alternative="two.sided")
+
+plot(min_n_pwr) + 
+  geom_hline(yintercept=0.80, color='blue') + 
+  scale_x_continuous(labels = comma)
+```
+
+## POWER CURVE ONE 
+# hold alpha constant at 0.05, vary mdl 
+```{r}
+ALPHA = 0.05
+parameters <- expand.grid(MDL=c(0.01,0.03,0.05,0.07,0.10), POWER=seq(from=0.50,to=0.99,by=0.01))
+parameters <- arrange(parameters, MDL)
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(SAMPLE_SIZE=pwr.2p.test(n=NULL,
+                                 h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=ALPHA,
+                                 power=POWER,
+                                 alternative='two.sided')$n) %>%
+  mutate(DURATION_DAYS=SAMPLE_SIZE/daily_sample_amount) %>%
+  mutate(MDL=as.factor(MDL))
+
+```
+
+## POWER CURVE ONE 
+## By sample size
+```{r}
+#By Sample Size
+ggplot(data=parameters, aes(x=SAMPLE_SIZE, y=POWER, color=MDL)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+```
+
+## POWER CURVE ONE 
+## By duratation
+```{r}
+ggplot(data=parameters, aes(x=DURATION_DAYS, y=POWER, color=MDL)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+
+```
+
+## POWER CURVE TWO
+```{r}
+
+parameters <- expand.grid(MDL=c(0.03,0.05,0.10), ALPHA = c(0.01, 0.05, 0.10))
+parameters <- arrange(parameters, MDL)
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(POWER=pwr.2p.test(n=14*daily_sample_amount,
+                                 h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=ALPHA,
+                                 power=NULL,
+                                 alternative='two.sided')$power) %>%
+  mutate(MDL=as.factor(MDL))
+```
+
+## POWER CURVE ONE 
+## By sample size
+```{r}
+#By Sample Size
+ggplot(data=parameters, aes(x=ALPHA, y=POWER, color=MDL)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+```
+
+
+## POWER CURVE TWO w/ SMOOTHED CURVE 
+```{r}
+parameters <- expand.grid(MDL=c(0.03,0.05,0.10), ALPHA = seq(from=0.01,to=0.10,by=0.001))
+parameters <- arrange(parameters, MDL)
+
+parameters <- parameters %>% 
+  rowwise() %>%
+  mutate(POWER=pwr.2p.test(n=14*daily_sample_amount,
+                                 h=ES.h(p1=p0,p2=(p0*(1+MDL))),
+                                 sig.level=ALPHA,
+                                 power=NULL,
+                                 alternative='two.sided')$power) %>%
+  mutate(MDL=as.factor(MDL))
+```
+
+## POWER CURVE TWO w/ SMOOTHED CURVE 
+## By sample size
+```{r}
+#By Sample Size
+ggplot(data=parameters, aes(x=ALPHA, y=POWER, color=MDL)) +
+  geom_line() +
+  geom_hline(yintercept=0.80) + 
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = percent) +
+  labs(title="Power curve for varying levels of MDL")
+```
+
+
+
+
+
+
+
+
+## FACTORIAL DESIGN CODE 
+## import libraries 
+```{r}
+#Clear memory
+rm(list = ls())
+
+#Libraries
+install.packages('lmSupport')
+library(lmSupport)
+library(dplyr)
+```
+
+## Step 1: Create data set under our response parameters
+Similar to previous power analyses, we need to specify our design parameters including MDL
+However, when analzying models this isn't as straightforward as a t-test difference in means
+Instead, the MDL in these scenarios is the difference in F statistics for a full and reduced model
+Because this is not easy to specify explicilty, instead we run a simulation determine the effect size given
+Our expected levels (or detectable) levels of the effects 
+```{r}
+#Total observations per treatment
+n <- 100000
+
+#Response Levels for each tratment 
+response_n1_n1 <- 0.0135
+response_n1_p1 <- 0.0125
+response_p1_n1 <- 0.0110
+response_p1_p1 <- 0.010
+
+#These could also be stated in terms of MDLs from the control (-1, -1) treatment
+#MDL <- 0.05
+#response_n1_n1 <- 0.015
+#response_n1_p1 <- response_n1_n1*(1+MDL)
+
+#Our design variables replicated per number of observations
+design <- expand.grid(rep=rep(1:10000), FC1=c("-1","+1"), FC2=c("-1","+1")) 
+
+#If you want to see the simplified matrix
+#View(expand.grid(FC1=c("-1","+1"), FC2=c("-1","+1"))) 
+
+#Create a simulated data set given our parameters 
+t1 <- ceiling((response_n1_n1*n))
+t2 <- ceiling((response_n1_p1*n))
+t3 <- ceiling((response_p1_n1*n))
+t4 <- ceiling((response_p1_p1*n))
+
+data_n1_n1 <- c(rep(1,t1), rep(0, n-t1))
+data_p1_n1 <- c(rep(1,t2), rep(0, n-t2))
+data_n1_p1 <- c(rep(1,t3), rep(0, n-t3))
+data_p1_p1 <- c(rep(1,t4), rep(0, n-t4))
+
+#Combined all together into one data frame for modeling
+data <- data.frame(FC1=design$FC1,
+                   FC2=design$FC2,
+                   response=c(data_n1_n1,
+                              data_p1_n1,
+                              data_n1_p1,
+                              data_p1_p1))
+
+#Validate to ensure properly set up
+data %>%
+  group_by(FC1,FC2) %>%
+  summarize(tot=n(), response=sum(response), response_rate = sum(response)/n())
+```
+
+## Step 2: Conduct power analysis to find minimum sample size
+```{r}
+
+#The first step is to estimate a model using our simulated data
+model = glm(response ~ FC1*FC2, data=data, family=c("binomial"))
+
+#The second step is to find the effect size in our given data using the modelEffectSizes function
+#The effect size is the pEta-square (partial Eta Squared):
+#The partial eqa squared is the ratio of variance associated with an effect, plus that effect and 
+#it's associated error variance
+#The formula is: Partial eta^2 = SSeffect / SSeffect + error
+#Note, you will find multiples. For factorial designs, we always pick the lowest effect size
+modelEffectSizes(model)
+
+#In this example, the smallest pEta-sq is associated with FC1 at 0.0001. 
+#This seems to round, so you may want to do it exact: peta = 0.3898/(0.3898+5105.5)
+
+#The third step is to find the sample size, we use the modelPower function
+#This compares two models, one with and without the factor of interest (the one with lowest effect size)
+#pc = number in compact model (this is always number of treatments - 1)
+#pa = number in full model (equal to the number of treatments) 
+#peta2 = the effect size from the previous step
+#alpha, power, and N per usual. We leave N as NULL to solve for the minimum sample size
+modelPower(pc=3, pa=4, peta2=0.0001, N=NULL, alpha=0.05, power=0.80)
+
+#In the results, we see the sample size is 78485 (rounded up) to detect this single treatment
+highest_sample_required <- 78485
+
+#To achieve 
+sample_per_treatment <- highest_sample_required / 4
+```
+
+
+
