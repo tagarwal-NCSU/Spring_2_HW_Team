@@ -8,6 +8,16 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+# install.packages('benford.analysis')
+# install.packages('robustbase')
+# install.packages('car')
+# install.packages('stats')
+# install.packages('FNN')
+# install.packages('dbscan')
+# install.packages('randomForest')
+# install.packages('devtools')
+# install.packages('isotree')
+
 library(benford.analysis)
 library(robustbase)
 library(car)
@@ -26,7 +36,6 @@ head(ins)
 ```{r}
 table(ins$Reward_Amount)
 ```
-
 
 
 # Benford's Law #
@@ -81,19 +90,76 @@ par(mfrow = c(1,1))
 
 # Mahalanobis Distances #
 ```{r}
-plot(x = ins$Time_Between_CL_R, y = ins$Cov_Limit_Claim/1000, 
-     xlim = c(-10, 30), 
-     ylim = c(-10, 3000),
-     main = "Coverage Limit vs. Speed of Payment",
-     xlab = "Time Between Claim and Payment",
-     ylab = "Coverage Limit at Claim (Thousands $)")
 
-df <- data.frame(Time = ins$Time_Between_CL_R, 
-                 CovLimit = ins$Cov_Limit_Claim/1000)
+summary(ins$Inc_Avg_Inc_Ratio)
+summary(ins$CH_AvgCH_Ratio,)
+
+plot(x = ins$Inc_Avg_Inc_Ratio, y = ins$CH_AvgCH_Ratio, 
+     xlim = c(-2, 6), 
+     ylim = c(-2, 23),
+     main = "Inc_Avg_Inc_Ratio vs. CH_AvgCH_Ratio",
+     xlab = "Inc_Avg_Inc_Ratio",
+     ylab = "CH_AvgCH_Ratio")
+
+df <- data.frame(Inc_to_Avg_Inc_Ratio = ins$Inc_Avg_Inc_Ratio, 
+                 CH_to_Avg_CH_Ratio = ins$CH_AvgCH_Ratio)
 
 rad <- sqrt(qchisq(0.9999975, ncol(df)))
 ellipse(center = colMeans(df, na.rm = TRUE), 
         shape = cov(df), radius = rad, col = "lightblue")
+
+hold = ins[which(ins[,'CH_AvgCH_Ratio']>9),]
+hold = hold$Cust_ID
+
+###
+summary(ins$Coverage_Income_Ratio_Claim)
+summary(ins$CH_Count_6Mon)
+
+plot(x = ins$Coverage_Income_Ratio_Claim, y = ins$CH_Count_6Mon, 
+     xlim = c(-2, 40), 
+     ylim = c(-2, 16),
+     main = "Coverage_Income_Ratio_Claim vs. CH_Count_6Mon",
+     xlab = "Coverage_Income_Ratio_Claim",
+     ylab = "CH_Count_6Mon")
+
+df <- data.frame(Coverage_Income_Ratio_Claim = ins$Coverage_Income_Ratio_Claim, 
+                 CH_Count_6Mon = ins$CH_Count_6Mon)
+
+rad <- sqrt(qchisq(0.9999975, ncol(df)))
+ellipse(center = colMeans(df, na.rm = TRUE), 
+        shape = cov(df), radius = rad, col = "lightblue")
+
+hold1 = subset(ins , CH_Count_6Mon > 3 | Coverage_Income_Ratio_Claim > 24)
+hold1 = hold1$Cust_ID
+
+##
+summary(ins$Income_Claim)
+summary(ins$Age_CL)
+
+plot(x = ins$Income_Claim/1000, y = ins$Age_CL, 
+     xlim = c(10, 250), 
+     ylim = c(-20, 90),
+     main = "Income_Claim (Thousand $) vs. Age_CL",
+     xlab = "Income_Claim (Thousand $)",
+     ylab = "Age_CL")
+
+df <- data.frame(Income_Claim = ins$Income_Claim/1000, 
+                 Age_CL = ins$Age_CL)
+
+rad <- sqrt(qchisq(0.9999975, ncol(df)))
+ellipse(center = colMeans(df, na.rm = TRUE), 
+        shape = cov(df), radius = rad, col = "lightblue")
+
+hold2 = subset(ins , Age_CL < 0 | Income_Claim > 180000)
+hold2 = hold2$Cust_ID
+
+
+HS_anomaly_cust_ids <- c(hold, hold1, hold2)
+HS_anomaly_cust_ids <- as.data.frame(HS_anomaly_cust_ids)
+
+write.csv(HS_anomaly_cust_ids,"/Users/hannahstanley/Documents/*MSA Program 2021/Spring 2/Anamoly.csv", row.names = FALSE)
+
+
 
 # MCD Adjustment to MD #
 
