@@ -1,0 +1,41 @@
+---
+title: "Assignment 1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("ggplot2")
+install.packages("rstan")
+install.packages("AmesHousing")
+install.packages("dplyr")
+install.packages("titanic")
+```
+
+```{r}
+library(ggplot2)
+library(rstan)
+library(AmesHousing)
+library(dplyr)
+library(titanic)
+```
+
+```{r}
+binom.data=list(n=100, y=40)
+### This is how you run Stan
+
+binom.stan=stan(file='assignment1.stan',data=binom.data,seed=18569)
+
+### Pull off the posterior samples
+post.samp.binom=extract(binom.stan)
+new.p=post.samp.binom$p
+####Graph the posterior
+p.post=data.frame(new.p)
+ggplot(p.post,aes(new.p)) + 
+  geom_histogram(bins = 50) + 
+  labs(title="Posterior distribution of p",y="Frequency",x="P")
+```
+
