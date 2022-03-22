@@ -1,0 +1,181 @@
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(janitor)
+```
+
+```{r}
+#######################################
+#### Load the demo data 
+#######################################
+
+#Download From Kaggle: https://www.kaggle.com/kishlaya18/customer-purchase-journey-netherlands
+
+df <- fread("C:\\Users\\bakea091\\Documents\\Class\\DoE_2022\\travel_path\\TravelData.csv")
+df <- select(df, 'UserID', 'PurchaseID', 'TIMESPSS', 'type_touch', 'purchase_any')
+colnames(df) <- c('UserID', 'PathID', 'TimeStamp', 'TouchType', 'Purchase')
+
+df_meta <- readxl::read_excel("C:\\Users\\bakea091\\Documents\\Class\\DoE_2022\\travel_path\\codebook.xlsx")
+df_meta <- df_meta[,c(1,2)]
+colnames(df_meta) <- c('TouchType', 'Defintion')
+df_meta <- filter(df_meta, TouchType %in% 1:30)
+```
+
+```{r}
+#### ####
+
+#######################################
+#### Heuristic and Markov Approach ####
+#######################################
+
+library(ChannelAttribution)
+
+#Convert to Path Format
+df_seq <- df %>% 
+  arrange(UserID, TimeStamp) %>%
+  group_by(UserID) %>%
+  summarize(Path = paste(TouchType, collapse = ' > '),
+            Purchase=sum(Purchase, na.rm=FALSE)) %>%
+  mutate(Purchase=ifelse(Purchase>0, 1, 0))
+
+#Checking 
+nrow(df_seq) #num users
+sum(df_seq$Purchase) #num purchase
+
+#Heuristic Models 
+heur <- heuristic_models(df_seq, 'Path', 'Purchase')
+colnames(heur)[1] <- 'TouchType'
+
+#Markov Model 
+markov <- markov_model(df_seq, 'Path', 'Purchase', order=1)
+colnames(markov)[1] <- 'TouchType'
+
+#Combine together 
+df_attr <- df_meta %>% 
+  left_join(heur) %>%
+  left_join(markov) %>%
+  arrange(desc(total_conversions)) %>%
+  rename(markov_network=total_conversions) %>%
+  janitor::adorn_totals("row")
+
+```
+
+#### ####
+
+```{r}  
+#######################################
+#### Regression Approach ####
+#######################################
+
+library(caret)
+library(glmnet)
+library(DMwR)
+
+#Summarize by Type and Widen
+df_events <- df %>%
+  group_by(UserID, TouchType) %>%
+  summarize(Total=n()) %>%
+  pivot_wider(names_from=TouchType, values_from=Total, 
+              names_prefix = "Event_", values_fill = list(Total = 0)) %>%
+  ungroup() %>%
+  mutate(Index=row_number()) %>%
+  left_join(select(df_seq, UserID, Purchase), suffix=c("", ".y")) %>%
+  select(-contains(".y"), -UserID)
+
+#Checking 
+nrow(df_events) #num users
+sum(df_events$Purchase) #num purchase
+df_events %>% summarize(TotPurchase=sum(Purchase), Total=n(), PctPurchase=sum(Purchase)/n())
+
+#Split The Data
+trainIndex <- createDataPartition(df_events$Index, p = 0.8, list = FALSE)
+dfTrain <- df_events[trainIndex,]
+dfTest <- df_events[-trainIndex,]
+colnames(dfTrain)
+
+dfTrain <- dfTrain[,-(ncol(dfTrain)-1)]
+dfTest <- dfTest[,-(ncol(dfTest)-1)]
+colnames(dfTrain)
+
+dfTrain %>% summarize(TotPurchase=sum(Purchase), Total=n(), PctPurchase=sum(Purchase)/n())
+dfTest %>% summarize(TotPurchase=sum(Purchase), Total=n(), PctPurchase=sum(Purchase)/n())
+
+#Ridge Regression (No parameters can be zero, but shrinks less important) 
+
+  #Model Variables
+  x <- model.matrix(Purchase~., dfTrain)[,-c(1,ncol(dfTrain))]
+  y <- dfTrain$Purchase
+  
+  #Cross Validated Ridge Regression
+    #Note alpha=0 is ridge
+    #Lower.limits=0 is the constraint on coefficients being postiive 
+  cv.ridge <- cv.glmnet(x, y, alpha=0, family='binomial', type.measure="auc", nfold=10, lower.limits=0)
+  plot(cv.ridge)
+  
+  coef(cv.ridge, cv.ridge$lambda.min)
+  coef(cv.ridge, cv.ridge$lambda.1se)
+  
+  model.ridge <- glmnet(x, y, alpha = 0, family = "binomial",lambda = cv.ridge$lambda.min, lower.limits=0)
+  coef(model.ridge)
+ 
+  #Accuracy on Test Set 
+  x.test <- model.matrix(Purchase~., dfTest)[,-c(1,ncol(dfTrain))]
+  y.test <-  dfTest$Purchase
+  
+  prob <- predict(model.ridge, newx=x.test)
+  predclass <- ifelse(prob > 0.144, 1, 0)
+  
+  confusionMatrix(data = as.factor(predclass), reference = as.factor(y.test))
+
+#A model tells you the relative importance via the coefficients
+#To actually attribute you need think of these coefficients as a weighting scheme
+
+#Get the coefficients
+dfCoef <- coef(model.ridge)
+dfCoef[,1] <- ifelse(dfCoef[,1]<0, 0, dfCoef[,1])
+dfCoef <- dfCoef[-1,]
+dfCoef <- data.frame(TouchType=names(dfCoef), Coef=dfCoef)
+dfCoef <- dfCoef %>% mutate(TouchType=str_remove(TouchType,"Event_"))
+
+#Attribute by:
+  #A: Summing up the total events in a path
+  #B: Multipying by coefficient by the total number of events
+  #C: Sum the result of B and take the relative proportion of total
+  #D: Multiple C by the total number of purchases
+
+df_reg_attr <- df %>%
+  group_by(UserID, TouchType) %>%
+  summarize(Total=n()) %>% #A
+  ungroup() %>%
+  mutate(TouchType = as.factor(TouchType)) %>%
+  left_join(select(df_seq, UserID, Purchase), suffix=c("", ".y")) %>%
+  select(-contains(".y"), -UserID)
+
+df_reg_attr <- df_reg_attr %>% 
+  left_join(dfCoef) %>%
+  filter(Purchase==1) %>%
+  mutate(TotalAttrVal=Total*Coef) %>% #B
+  group_by(TouchType) %>%
+  summarize(TotalAttrVal=sum(TotalAttrVal, na.rm=TRUE)) %>% #C
+  mutate(TotalAttrVal_Pct=TotalAttrVal/sum(TotalAttrVal,na.rm = TRUE)) %>% #C
+  mutate(Attr_Purchase=TotalAttrVal_Pct*sum(df_events$Purchase)) %>% #D
+  replace_na(list(Attr_Purchase = 0)) 
+
+df_reg_attr %>% janitor::adorn_totals("row")
+
+sum(df_events$Purchase)
+sum(df_reg_attr$Attr_Purchase)
+
+#Combine together 
+df_attr <- df_meta %>% 
+  left_join(heur) %>%
+  left_join(markov) %>% 
+  left_join(df_reg_attr %>% select(TouchType, Attr_Purchase)) %>%
+  arrange(desc(total_conversions)) %>%
+  janitor::adorn_totals("row")
+
+View(df_attr)
+
+#### ####
+```
