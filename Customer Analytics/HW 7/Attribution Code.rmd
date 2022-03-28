@@ -12,11 +12,11 @@ library(janitor)
 
 #Download From Kaggle: https://www.kaggle.com/kishlaya18/customer-purchase-journey-netherlands
 
-df <- fread("C:\\Users\\bakea091\\Documents\\Class\\DoE_2022\\travel_path\\TravelData.csv")
+df <- fread("TravelData.csv")
 df <- select(df, 'UserID', 'PurchaseID', 'TIMESPSS', 'type_touch', 'purchase_any')
 colnames(df) <- c('UserID', 'PathID', 'TimeStamp', 'TouchType', 'Purchase')
 
-df_meta <- readxl::read_excel("C:\\Users\\bakea091\\Documents\\Class\\DoE_2022\\travel_path\\codebook.xlsx")
+df_meta <- readxl::read_excel("codebook.xlsx")
 df_meta <- df_meta[,c(1,2)]
 colnames(df_meta) <- c('TouchType', 'Defintion')
 df_meta <- filter(df_meta, TouchType %in% 1:30)
@@ -70,7 +70,7 @@ df_attr <- df_meta %>%
 
 library(caret)
 library(glmnet)
-library(DMwR)
+# library(DMwR)
 
 #Summarize by Type and Widen
 df_events <- df %>%
@@ -179,3 +179,27 @@ View(df_attr)
 
 #### ####
 ```
+
+
+```{r}
+# Homework 7 - Question 1
+library(matrixStats)
+
+df_attr =
+df_attr %>% 
+  mutate(first_touch_rank = rank(first_touch),
+         last_touch_rank = rank(last_touch),
+         linear_touch_rank = rank(linear_touch),
+         total_conversions_rank = rank(total_conversions),
+         Attr_Purchase_rank = rank(Attr_Purchase))
+
+df_attr$varAttr = rowVars(as.matrix(df_attr[c("first_touch_rank", 
+                                              "last_touch_rank", 
+                                              "linear_touch_rank", 
+                                              "total_conversions_rank", 
+                                              "Attr_Purchase_rank")]))
+
+df_attr %>% 
+  arrange(varAttr)
+```
+
