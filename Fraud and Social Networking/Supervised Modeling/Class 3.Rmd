@@ -7,3 +7,60 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(dplyr)
+df = read.csv("aggregated_policy_label_2022B_undersampled.csv")
+df
+```
+
+```{r}
+set.seed(1)
+
+library(randomForest)
+
+idxs = sample(1:nrow(df), floor(0.7 * nrow(df)))
+train = df[idxs,]
+test = df[-idxs,]
+
+# train = train[complete.cases(train),]
+
+cols_to_keep = c()
+for (col in colnames(train)){
+  if (length(unique(train[,col])) != 1) {
+    cols_to_keep = c(cols_to_keep, col)
+  } else {
+    print(col)
+  }
+}
+
+# cols_to_keep = c("Gender", "State", "Dist_Claim_Adj", "Coverage_Income_Ratio_Initial",
+#                  "Number_Changes", "Coverage_Income_Ratio_Claim", "Type", 
+#                  "Coverage_CH_After_Claim")
+
+train = train[cols_to_keep]
+
+model = randomForest(Susp_Fraud ~ .,
+                     data = train,
+                     weight = weight)
+
+# model = glm(Susp_Fraud ~ , 
+#             data = train,
+#             weight = weight)
+# null.model = glm(Susp_Fraud ~ 1, 
+#                  data = train,
+#                  weight = weight)
+# 
+# step.model = step(model,
+#                   scope = c(upper = model,
+#                            lower = null.model),
+#                   direction = "backward")
+
+summary(model)
+summary(step.model)
+        
+```
+
+```{r}
+train
+```
+
